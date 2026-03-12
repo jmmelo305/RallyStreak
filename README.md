@@ -27,6 +27,7 @@ A game based on the real life sport Tennis. The game consists of seeing how many
 3. Hold W / A / S / D to determine the placement of your shots
 4. Aim at the ball with the racquet and left click to swing.
 5. 3 lives, if you miss a ball you lose a life.
+6. Press "ESC" at any moment to return to the Title Screen.
 
 ## Win Conditions
 
