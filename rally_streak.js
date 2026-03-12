@@ -186,7 +186,7 @@ function drawRing(color, alpha) {
 
 const ringTex    = new THREE.CanvasTexture(ringCanvas);
 const ringSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, transparent: true, depthTest: false }));
-ringSprite.scale.set(0.6, 0.6, 1);
+ringSprite.scale.set(1.0, 1.0, 1);
 ringSprite.visible = false;
 scene.add(ringSprite);
 
@@ -234,12 +234,28 @@ const gs = {
   particles: [],
 
   multiplier()    { return 1.0 + Math.floor(this.streak / 5) * 0.4; },
-  ballSpeedBase() { return 9.0 + this.multiplier() * 2.0; },
+  ballSpeedBase() { return 7.0 + this.multiplier() * 1.5; },
 };
 
 const keys = {};
-window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
-window.addEventListener('keyup',   e => { keys[e.key.toLowerCase()] = false; });
+window.addEventListener('keydown', e => {
+  // Use code (layout-independent) mapped to WASD logical names
+  const k = codeToKey(e.code);
+  if (k) { keys[k] = true; e.preventDefault(); }
+});
+window.addEventListener('keyup', e => {
+  const k = codeToKey(e.code);
+  if (k) keys[k] = false;
+});
+function codeToKey(code) {
+  switch(code) {
+    case 'KeyW': case 'ArrowUp':    return 'w';
+    case 'KeyS': case 'ArrowDown':  return 's';
+    case 'KeyA': case 'ArrowLeft':  return 'a';
+    case 'KeyD': case 'ArrowRight': return 'd';
+    default: return null;
+  }
+}
 
 // ─── INPUT ───────────────────────────────────────────────────────────────────
 window.addEventListener('mousemove', e => {
@@ -250,7 +266,11 @@ window.addEventListener('mousemove', e => {
   ch.style.top  = e.clientY + 'px';
 });
 
-window.addEventListener('click', () => {
+// mousedown eliminates browser click-delay entirely
+window.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  if (e.target.closest && e.target.closest('.btn')) return;
+
   if (gs.phase === 'title') {
     document.getElementById('title-screen').classList.remove('visible');
     gs.phase = 'serve';
@@ -263,12 +283,20 @@ window.addEventListener('click', () => {
     serve();
     return;
   }
-  if (gs.phase === 'rally' && !gs.swinging) {
+  if (gs.phase === 'rally') {
+    // Snapshot ALL shot modifier keys at the exact moment of click
+    const wHeld = !!keys['w'];
+    const sHeld = !!keys['s'];
+    const aHeld = !!keys['a'];
+    const dHeld = !!keys['d'];
+    gs.shotLob   = wHeld && !sHeld;
+    gs.shotSoft  = sHeld && !wHeld;
+    gs.shotDirX  = aHeld && !dHeld ? -1 : dHeld && !aHeld ? 1 : 0;
+    // Start swing animation
     gs.swinging = true;
     gs.swingT   = 0;
-    gs.shotDirX = keys['a'] && !keys['d'] ? -1 : keys['d'] && !keys['a'] ? 1 : 0;
-    gs.shotLob  = !!keys['w'];
-    gs.shotSoft = !!keys['s'];
+    // Attempt hit immediately with the snapshotted flags
+    attemptHit();
   }
 });
 
@@ -325,52 +353,72 @@ function opponentHit() {
   spawnParticles(gs.ballPos[0], gs.ballPos[1], gs.ballPos[2], false);
 }
 
+// Use Three.js to project ball world pos directly onto screen — perfectly accurate
+const _projVec = new THREE.Vector3();
 function projectBallToScreen() {
-  const [bx, by, bz] = gs.ballPos;
-  const camZ = PLAYER_Z - bz;
-  if (camZ < 0.1) return null;
-  const fovRad = FOV * Math.PI / 180;
-  const f      = 1.0 / Math.tan(fovRad / 2);
-  const aspect = innerWidth / innerHeight;
-  const cy     = by - CAM_Y;
-  const ndcx   = (bx / camZ) * f / aspect;
-  const ndcy   = (cy / camZ) * f;
-  const sx     = (ndcx + 1.0) * 0.5 * innerWidth;
-  const sy     = (1.0 - (ndcy + 1.0) * 0.5) * innerHeight;
+  _projVec.set(gs.ballPos[0], gs.ballPos[1], gs.ballPos[2]);
+  _projVec.project(camera);          // NDC: -1..1
+  if (_projVec.z > 1) return null;   // behind camera
+  const sx = (_projVec.x + 1) * 0.5 * innerWidth;
+  const sy = (-_projVec.y + 1) * 0.5 * innerHeight;
   return [sx, sy];
 }
 
+// Called every frame during rally — keeps checking during active swing window
 function checkPlayerHit() {
-  if (!gs.swinging || gs.swingT < 0.2) return;
-  if (gs.ballPos[2] < PLAYER_Z - 3.0)  return;
-  if (gs.ballVel[2] <= 0)               return;
+  if (!gs.swinging) return;
+  attemptHit();
+}
+
+// Core hit test — called immediately on click AND each frame while swinging
+function attemptHit() {
+  if (!gs.ballLive) return;
+
+  // Generous hit window: ball anywhere in front half of the court coming toward player
+  const inZone = gs.ballPos[2] > PLAYER_Z - 5.0 && gs.ballPos[2] < PLAYER_Z + 1.0;
+  if (!inZone) return;
+
   const bs = projectBallToScreen();
   if (!bs) return;
-  const hitRadius = 130 * Math.min(innerWidth, innerHeight) / 720;
+
+  // Hit radius: generous fixed screen-space distance, scaled to viewport
+  const hitRadius = 150 * Math.min(innerWidth, innerHeight) / 720;
   const d = Math.hypot(bs[0] - gs.mouseX, bs[1] - gs.mouseY);
   if (d < hitRadius) playerHit();
 }
 
 function playerHit() {
-  let speed      = gs.ballSpeedBase() * (0.9 + Math.random() * 0.2);
-  const distToNet = gs.ballPos[2];
-  const tNet      = distToNet / speed;
+  // --- Capture shot intent (already snapshotted at click time) ---
+  const isLob   = gs.shotLob;
+  const isDrop  = gs.shotSoft;
+  const dirX    = gs.shotDirX;  // -1 left, 0 centre, +1 right
+
+  let speed = gs.ballSpeedBase() * (0.9 + Math.random() * 0.15);
+  const distToNet = Math.max(gs.ballPos[2], 0.5); // distance player -> net
   let vy;
 
-  if (gs.shotLob) {
-    speed *= 0.6;
-    vy = 12.0;
-  } else if (gs.shotSoft) {
-    speed *= 0.35;
-    const tns = distToNet / Math.max(speed, 0.1);
-    const vym = (NET_H - gs.ballPos[1] - 0.5 * GRAVITY * tns * tns) / Math.max(tns, 0.1);
-    vy = Math.max(vym + 0.5, 2.5);
+  if (isLob) {
+    // LOB: slow, very high arc — clears net with lots of margin
+    speed *= 0.55;
+    vy = 10.0 + Math.random() * 2;
+  } else if (isDrop) {
+    // DROP SHOT: very slow, just clears the net, lands short
+    speed *= 0.30;
+    const tDrop = distToNet / Math.max(speed, 0.1);
+    const vyMin = (NET_H + 0.3 - gs.ballPos[1] - 0.5 * GRAVITY * tDrop * tDrop) / Math.max(tDrop, 0.1);
+    vy = Math.max(vyMin, 2.0);
   } else {
-    const vym = (NET_H - gs.ballPos[1] - 0.5 * GRAVITY * tNet * tNet) / Math.max(tNet, 0.1);
-    vy = Math.max(vym + 1.5, 3.0);
+    // FLAT: calculated arc to clear net cleanly
+    const tNet  = distToNet / speed;
+    const vyMin = (NET_H + 0.2 - gs.ballPos[1] - 0.5 * GRAVITY * tNet * tNet) / Math.max(tNet, 0.1);
+    vy = Math.max(vyMin + 1.2, 3.0);
   }
 
-  const vx   = gs.shotDirX * 4.5 + (Math.random() - 0.5) * 0.6;
+  // Corner placement: dirX drives X velocity toward the target corner
+  // Add small random noise so it's not robotic
+  const cornerStrength = isLob ? 3.0 : isDrop ? 2.5 : 4.0;
+  const vx = dirX * cornerStrength + (Math.random() - 0.5) * 0.4;
+
   gs.ballVel = [vx, vy, -speed];
 
   gs.streak++;
@@ -380,6 +428,8 @@ function playerHit() {
   gs.hitFlash   = 1.0;
 
   spawnParticles(gs.ballPos[0], gs.ballPos[1], gs.ballPos[2], true);
+
+  // Clear swing state
   gs.swinging = false;
   gs.swingT   = 0;
   gs.shotDirX = 0;
@@ -489,8 +539,8 @@ function updatePhysics(dt) {
     return;
   }
 
-  // Player hit check
-  if (gs.ballLive && gs.ballPos[2] > PLAYER_Z - 3 && gs.ballVel[2] > 0 && gs.swinging) {
+  // Player hit check — runs whenever swinging, ball in range
+  if (gs.ballLive && gs.swinging) {
     checkPlayerHit();
   }
 
@@ -523,8 +573,8 @@ function updatePhysics(dt) {
   const bs = projectBallToScreen();
   if (bs && gs.ballVel[2] > 0) {
     const dist   = Math.abs(gs.ballPos[2] - PLAYER_Z);
-    const coming = dist < 3.0;
-    drawRing(coming ? '#44ff44' : '#ccdd00', coming ? Math.max(0.2, 1 - dist / 3) : 0.2);
+    const coming = dist < 5.0 && gs.ballVel[2] > 0;
+    drawRing(coming ? '#44ff44' : '#ccdd00', coming ? Math.max(0.25, 1 - dist / 5) : 0.18);
     ringTex.needsUpdate = true;
     ringSprite.position.set(gs.ballPos[0], gs.ballPos[1], gs.ballPos[2]);
     ringSprite.visible = true;
@@ -606,12 +656,27 @@ function pulseStreak() {
 
 // ─── SHOT DIRECTION INDICATOR ─────────────────────────────────────────────────
 function updateShotIndicator() {
-  const el = document.getElementById('dir-val');
-  if      (keys['w']) { el.textContent = '▲  LOB';          el.style.color = '#00cfff'; }
-  else if (keys['s']) { el.textContent = '▼  SOFT DROP';    el.style.color = '#88ff88'; }
-  else if (keys['a']) { el.textContent = '◀  LEFT CORNER';  el.style.color = '#ffcc33'; }
-  else if (keys['d']) { el.textContent = 'RIGHT CORNER  ▶'; el.style.color = '#ffcc33'; }
-  else                { el.textContent = '—  CENTRE  —';    el.style.color = 'rgba(200,200,200,0.6)'; }
+  const el  = document.getElementById('dir-val');
+  const w   = !!keys['w'], s = !!keys['s'];
+  const a   = !!keys['a'], d = !!keys['d'];
+  const lob  = w && !s;
+  const drop = s && !w;
+  const left  = a && !d;
+  const right = d && !a;
+
+  let label, color;
+  if      (lob  && left)  { label = '↖  LOB LEFT';        color = '#00cfff'; }
+  else if (lob  && right) { label = 'LOB RIGHT  ↗';       color = '#00cfff'; }
+  else if (lob)           { label = '▲  LOB';             color = '#00cfff'; }
+  else if (drop && left)  { label = '↙  DROP LEFT';       color = '#88ff88'; }
+  else if (drop && right) { label = 'DROP RIGHT  ↘';      color = '#88ff88'; }
+  else if (drop)          { label = '▼  DROP SHOT';       color = '#88ff88'; }
+  else if (left)          { label = '◀  LEFT';            color = '#ffcc33'; }
+  else if (right)         { label = 'RIGHT  ▶';           color = '#ffcc33'; }
+  else                    { label = '—  FLAT  —';         color = 'rgba(200,200,200,0.55)'; }
+
+  el.textContent  = label;
+  el.style.color  = color;
 }
 
 // ─── RACKET 2D DRAW ──────────────────────────────────────────────────────────
