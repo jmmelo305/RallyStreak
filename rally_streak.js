@@ -274,6 +274,8 @@ function returnToTitle() {
   document.getElementById('game-wrap').classList.remove('active');
   const titlePage = document.getElementById('title-page');
   titlePage.style.display = '';
+  // Force reflow before removing hidden so transition plays correctly
+  void titlePage.offsetWidth;
   titlePage.classList.remove('hidden');
 }
 function codeToKey(code) {
@@ -854,14 +856,23 @@ function loop(now) {
 document.getElementById('start-btn').addEventListener('click', () => {
   const titlePage = document.getElementById('title-page');
   titlePage.classList.add('hidden');
-  // Wait for fade-out transition to finish, then remove entirely and start game
-  titlePage.addEventListener('transitionend', () => {
+
+  function startGame() {
     titlePage.style.display = 'none';
     document.getElementById('game-wrap').classList.add('active');
     gs.phase = 'serve';
     gs.serveReady = false;
     setTimeout(() => { gs.serveReady = true; }, 200);
+  }
+
+  // transitionend fires when CSS fade completes — fallback timeout in case it doesn't
+  let started = false;
+  titlePage.addEventListener('transitionend', () => {
+    if (!started) { started = true; startGame(); }
   }, { once: true });
+  setTimeout(() => {
+    if (!started) { started = true; startGame(); }
+  }, 600);
 });
 
 updateHUD();
