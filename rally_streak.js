@@ -232,13 +232,19 @@ const gs = {
   shotSoft: false,
 
   particles: [],
+  serveReady: false,   // true only after an explicit delay — prevents accidental serves
 
-  multiplier()    { return 1.0 + Math.floor(this.streak / 5) * 0.4; },
+  multiplier()    { return 1.0 + Math.floor(this.streak / 2) * 0.5; },
   ballSpeedBase() { return 7.0 + this.multiplier() * 1.5; },
 };
 
 const keys = {};
 window.addEventListener('keydown', e => {
+  // ESC — quit to title screen from anywhere in the game
+  if (e.code === 'Escape') {
+    returnToTitle();
+    return;
+  }
   // Use code (layout-independent) mapped to WASD logical names
   const k = codeToKey(e.code);
   if (k) { keys[k] = true; e.preventDefault(); }
@@ -247,6 +253,29 @@ window.addEventListener('keyup', e => {
   const k = codeToKey(e.code);
   if (k) keys[k] = false;
 });
+
+function returnToTitle() {
+  // Reset game state silently
+  gs.phase      = 'title';
+  gs.ballLive   = false;
+  gs.swinging   = false;
+  gs.swingT     = 0;
+  gs.hitFlash   = 0;
+  gs.serveReady = false;
+  gs.particles.forEach(p => scene.remove(p.mesh));
+  gs.particles  = [];
+  ballMesh.visible = false;
+  trailMeshes.forEach(t => t.visible = false);
+  trailPos.length = 0;
+  // Hide all game overlays
+  document.getElementById('msg-overlay').classList.remove('visible');
+  document.getElementById('gameover-screen').classList.remove('visible');
+  // Hide game, show title
+  document.getElementById('game-wrap').classList.remove('active');
+  const titlePage = document.getElementById('title-page');
+  titlePage.style.display = '';
+  titlePage.classList.remove('hidden');
+}
 function codeToKey(code) {
   switch(code) {
     case 'KeyW': case 'ArrowUp':    return 'w';
@@ -269,17 +298,14 @@ window.addEventListener('mousemove', e => {
 // mousedown eliminates browser click-delay entirely
 window.addEventListener('mousedown', e => {
   if (e.button !== 0) return;
+  // Block clicks on HUD elements (text, dots, etc.) but allow canvas + overlays
+  if (e.target.closest('#hud, #flash, #crosshair')) return;
   if (e.target.closest && e.target.closest('.btn')) return;
 
-  if (gs.phase === 'title') {
-    document.getElementById('title-screen').classList.remove('visible');
-    gs.phase = 'serve';
-    showMsg('CLICK TO SERVE', '', 'Hold A/D/W/S to aim your shot');
-    document.getElementById('msg-overlay').classList.add('visible');
-    return;
-  }
-  if (gs.phase === 'serve') {
+
+  if (gs.phase === 'serve' && gs.serveReady) {
     document.getElementById('msg-overlay').classList.remove('visible');
+    gs.phase = 'rally'; // set immediately so loop toggle sees it right away
     serve();
     return;
   }
@@ -322,8 +348,9 @@ function resetGame() {
   trailMeshes.forEach(t => t.visible = false);
   trailPos.length = 0;
   updateHUD();
-  showMsg('CLICK TO SERVE', '', '');
-  document.getElementById('msg-overlay').classList.add('visible');
+  gs.serveReady = false;
+  setTimeout(() => { gs.serveReady = true; }, 600);
+  document.getElementById('msg-overlay').classList.remove('visible');
 }
 
 function serve() {
@@ -342,14 +369,46 @@ function serve() {
 
 function opponentHit() {
   if (gs.ballVel[2] > 0) return;
-  const speed  = gs.ballSpeedBase() * (0.85 + Math.random() * 0.3);
+
+  // Pick a random shot type — weighted by multiplier so harder shots appear more at higher streaks
+  const mult = gs.multiplier();
+  const rand = Math.random();
+  // At low mult: mostly flat. At high mult: more lobs and drops mixed in
+  const lobChance  = Math.min(0.25, 0.05 * mult);
+  const dropChance = Math.min(0.20, 0.04 * mult);
+  const isLob  = rand < lobChance;
+  const isDrop = !isLob && rand < lobChance + dropChance;
+
+  // Pick a target X: left corner, right corner, or body — random each shot
+  const cornerRoll = Math.random();
+  let targetX;
+  if      (cornerRoll < 0.35) targetX = -(COURT_W / 2) * (0.6 + Math.random() * 0.3); // left corner
+  else if (cornerRoll < 0.70) targetX =  (COURT_W / 2) * (0.6 + Math.random() * 0.3); // right corner
+  else                        targetX = (Math.random() - 0.5) * 1.5;                   // body/centre
+
   const dToNet = Math.abs(gs.ballPos[2]);
-  const tNet   = dToNet / speed;
-  const vyMin  = (NET_H - gs.ballPos[1] - 0.5 * GRAVITY * tNet * tNet) / Math.max(tNet, 0.1);
-  gs.ballVel[1] = Math.max(vyMin + 1.5, 3);
+
+  let speed, vy;
+
+  if (isLob) {
+    speed = gs.ballSpeedBase() * (0.45 + Math.random() * 0.1);
+    vy    = 9.0 + Math.random() * 2.5;
+  } else if (isDrop) {
+    speed = gs.ballSpeedBase() * (0.32 + Math.random() * 0.08);
+    const tDrop = dToNet / Math.max(speed, 0.1);
+    const vyMin = (NET_H + 0.8 - gs.ballPos[1] - 0.5 * GRAVITY * tDrop * tDrop) / Math.max(tDrop, 0.1);
+    vy = Math.max(vyMin + 1.0, 3.0);
+  } else {
+    // Flat — scale speed with multiplier for more pressure at higher streaks
+    speed = gs.ballSpeedBase() * (0.85 + Math.random() * 0.3);
+    const tNet  = dToNet / Math.max(speed, 0.1);
+    const vyMin = (NET_H + 0.2 - gs.ballPos[1] - 0.5 * GRAVITY * tNet * tNet) / Math.max(tNet, 0.1);
+    vy = Math.max(vyMin + 1.5, 3.0);
+  }
+
+  gs.ballVel[0] = (targetX - gs.ballPos[0]) * (0.5 + Math.random() * 0.2);
+  gs.ballVel[1] = vy;
   gs.ballVel[2] = speed;
-  const tx = (Math.random() - 0.5) * 3.6;
-  gs.ballVel[0] = (tx - gs.ballPos[0]) * 0.6;
   spawnParticles(gs.ballPos[0], gs.ballPos[1], gs.ballPos[2], false);
 }
 
@@ -402,11 +461,11 @@ function playerHit() {
     speed *= 0.55;
     vy = 10.0 + Math.random() * 2;
   } else if (isDrop) {
-    // DROP SHOT: very slow, just clears the net, lands short
-    speed *= 0.30;
+    // DROP SHOT: slow, clears the net with solid margin, lands just past it
+    speed *= 0.38;
     const tDrop = distToNet / Math.max(speed, 0.1);
-    const vyMin = (NET_H + 0.3 - gs.ballPos[1] - 0.5 * GRAVITY * tDrop * tDrop) / Math.max(tDrop, 0.1);
-    vy = Math.max(vyMin, 2.0);
+    const vyMin = (NET_H + 0.8 - gs.ballPos[1] - 0.5 * GRAVITY * tDrop * tDrop) / Math.max(tDrop, 0.1);
+    vy = Math.max(vyMin + 1.0, 3.0);
   } else {
     // FLAT: calculated arc to clear net cleanly
     const tNet  = distToNet / speed;
@@ -501,6 +560,13 @@ function updatePhysics(dt) {
   if (gs.ballPos[1] < BALL_R) {
     gs.ballPos[1]  = BALL_R;
     gs.ballVel[1] *= -0.5;
+  }
+
+  // Ceiling cap — ball bounces back down if it goes too high
+  const BALL_MAX_Y = 10.0;
+  if (gs.ballPos[1] > BALL_MAX_Y) {
+    gs.ballPos[1]  = BALL_MAX_Y;
+    gs.ballVel[1] *= -0.7;
   }
 
   // Side walls
@@ -768,9 +834,9 @@ function loop(now) {
     gs.phaseTimer -= dt;
     if (gs.phaseTimer <= 0) {
       gs.phase = 'serve';
+      gs.serveReady = false;
+      setTimeout(() => { gs.serveReady = true; }, 600);
       document.getElementById('msg-overlay').classList.remove('visible');
-      showMsg('CLICK TO SERVE', '', 'Hold A/D/W/S to aim');
-      document.getElementById('msg-overlay').classList.add('visible');
     }
   }
 
@@ -784,5 +850,19 @@ function loop(now) {
 }
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
+// ── START BUTTON ──
+document.getElementById('start-btn').addEventListener('click', () => {
+  const titlePage = document.getElementById('title-page');
+  titlePage.classList.add('hidden');
+  // Wait for fade-out transition to finish, then remove entirely and start game
+  titlePage.addEventListener('transitionend', () => {
+    titlePage.style.display = 'none';
+    document.getElementById('game-wrap').classList.add('active');
+    gs.phase = 'serve';
+    gs.serveReady = false;
+    setTimeout(() => { gs.serveReady = true; }, 200);
+  }, { once: true });
+});
+
 updateHUD();
 requestAnimationFrame(loop);
