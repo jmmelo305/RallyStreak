@@ -16,6 +16,7 @@ A game based on the real life sport Tennis. The game consists of seeing how many
 - A = Left Corner Shot
 - S = Drop Shot
 - D = Right Corner Shot
+4. Hidden Konami Code Easter Egg
 
 ## How To Run: Prerequisites
 - Use this link: https://jmmelo305.github.io/RallyStreak/
