@@ -10,7 +10,6 @@
   --dim:    rgba(255,255,255,0.45);
   --dark:   #0a0a0a;
 
-  /* Fluid type scale */
   --fs-huge:  clamp(32px, 5.5vmin, 76px);
   --fs-big:   clamp(26px, 4.2vmin, 60px);
   --fs-title: clamp(48px, 8.5vmin, 108px);
@@ -19,17 +18,87 @@
   --fs-sm:    clamp(8px,  1.3vmin, 13px);
   --fs-btn:   clamp(15px, 2vmin,   24px);
 
-  /* Fluid spacing */
   --pad-edge: clamp(10px, 2vw,   28px);
   --pad-top:  clamp(8px,  1.4vh, 18px);
-  --gap-ui:   clamp(16px, 3vmin, 36px);
 }
 
 body {
   background: #000;
   overflow: hidden;
   font-family: 'Bebas Neue', sans-serif;
+}
+
+/* ── TITLE PAGE ── */
+#title-page {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: #0a0f0a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+#title-page.hidden {
+  opacity: 0;
+  transform: translateY(-14px);
+  pointer-events: none;
+}
+#title-page-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(20px, 4vmin, 48px);
+}
+.game-title {
+  font-size: var(--fs-title);
+  line-height: 0.95;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.1em;
+  text-align: center;
+}
+.game-title span:first-child {
+  color: var(--neon);
+  text-shadow: 0 0 40px rgba(212,255,0,0.4);
+}
+.game-title span:last-child { color: var(--white); }
+
+.title-divider {
+  width: clamp(160px, 32vw, 380px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--neon), transparent);
+  margin: clamp(8px, 1.8vmin, 22px) 0 clamp(10px, 2.2vmin, 26px);
+}
+.instructions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(6px, 1.2vmin, 12px) clamp(18px, 3.5vw, 50px);
+  width: min(640px, 90vw);
+  margin-bottom: clamp(20px, 3.5vmin, 40px);
+}
+.instr-block h3 {
+  font-size: clamp(12px, 1.8vmin, 20px);
+  letter-spacing: 0.2em;
+  color: var(--neon);
+  margin-bottom: 0.4em;
+}
+.instr-block p {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: clamp(9px, 1.4vmin, 13px);
+  line-height: 1.85;
+  color: rgba(255,255,255,0.6);
+}
+.instr-block p strong { color: var(--white); }
+
+/* ── GAME WRAP ── */
+#game-wrap {
+  position: fixed;
+  inset: 0;
+  visibility: hidden;
   cursor: none;
+}
+#game-wrap.active {
+  visibility: visible;
 }
 
 #c {
@@ -45,6 +114,7 @@ body {
   pointer-events: none;
   font-family: 'Bebas Neue', sans-serif;
 }
+#hud * { pointer-events: none !important; }
 
 .hud-score {
   position: absolute;
@@ -193,6 +263,7 @@ body {
   box-shadow: 0 0 6px rgba(255,31,31,0.7);
 }
 
+
 /* ── HIT FLASH ── */
 #flash {
   position: fixed;
@@ -211,7 +282,7 @@ body {
   height: clamp(28px, 4vmin, 52px);
 }
 
-/* ── OVERLAYS ── */
+/* ── OVERLAYS (game over, fault msg) ── */
 .overlay {
   position: fixed;
   inset: 0;
@@ -227,65 +298,9 @@ body {
   padding: clamp(14px, 3.5vmin, 40px) clamp(14px, 4vw, 48px);
 }
 .overlay.visible { opacity: 1; pointer-events: all; }
-
-/* ── TITLE SCREEN ── */
-#title-screen .game-title {
-  font-size: var(--fs-title);
-  line-height: 0.95;
-  letter-spacing: 0.04em;
-  margin-bottom: 0.1em;
-  text-align: center;
-}
-#title-screen .game-title span:first-child {
-  color: var(--neon);
-  text-shadow: 0 0 40px rgba(212,255,0,0.4);
-}
-#title-screen .game-title span:last-child { color: var(--white); }
-
-.title-divider {
-  width: clamp(160px, 32vw, 380px);
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--neon), transparent);
-  margin: clamp(8px, 1.8vmin, 22px) 0 clamp(10px, 2.2vmin, 26px);
-}
-
-.instructions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: clamp(6px, 1.2vmin, 12px) clamp(18px, 3.5vw, 50px);
-  width: min(640px, 90vw);
-  margin-bottom: clamp(14px, 2.8vmin, 36px);
-}
-.instr-block h3 {
-  font-size: clamp(12px, 1.8vmin, 20px);
-  letter-spacing: 0.2em;
-  color: var(--neon);
-  margin-bottom: 0.4em;
-}
-.instr-block p {
-  font-family: 'Share Tech Mono', monospace;
-  font-size: clamp(9px, 1.4vmin, 13px);
-  line-height: 1.85;
-  color: rgba(255,255,255,0.6);
-}
-.instr-block p strong { color: var(--white); }
-
-.cta {
-  font-size: clamp(12px, 2vmin, 24px);
-  letter-spacing: 0.3em;
-  color: var(--white);
-  animation: blink 1.4s ease-in-out infinite;
-  cursor: pointer;
-  text-align: center;
-}
-@keyframes blink {
-  0%,100% { opacity: 1; }
-  50%     { opacity: 0.35; }
-}
-
-/* ── MSG OVERLAY ── */
 #msg-overlay {
   background: transparent;
+  pointer-events: none !important;
   justify-content: center;
   gap: clamp(6px, 1.8vmin, 16px);
 }
@@ -345,6 +360,11 @@ body {
   border-radius: 2px;
   transition: transform 0.1s, box-shadow 0.1s;
   box-shadow: 0 4px 24px rgba(212,255,0,0.4);
+  pointer-events: none;  /* inherit from parent — only active when overlay is visible */
+}
+/* Buttons inside visible overlays and the standalone title page are clickable */
+.overlay.visible .btn,
+#title-page .btn {
   pointer-events: all;
 }
 .btn:hover {
@@ -352,20 +372,18 @@ body {
   box-shadow: 0 8px 32px rgba(212,255,0,0.6);
 }
 
-/* ── RESPONSIVE BREAKPOINTS ── */
-
-/* Narrow / portrait */
-@media (max-aspect-ratio: 4/3) {
-  .instructions {
-    grid-template-columns: 1fr;
-  }
-  .hud-best .bstr,
-  .hud-best .bstr-lbl {
-    display: none;
-  }
+/* ── ANIMATIONS ── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
 }
 
-/* Very small (phones / tiny windows) */
+/* ── RESPONSIVE ── */
+@media (max-aspect-ratio: 4/3) {
+  .instructions { grid-template-columns: 1fr; }
+  .hud-best .bstr,
+  .hud-best .bstr-lbl { display: none; }
+}
 @media (max-width: 420px), (max-height: 340px) {
   .hud-centre .bar-wrap { display: none; }
   .hud-centre .mult-lbl { display: none; }
